@@ -337,6 +337,8 @@ function renderBetting(bets) {
   const totalStaked = footy.reduce((s,b) => s+b.stake, 0);
   const totalWon    = footy.reduce((s,b) => s+b.payout, 0);
   const net         = totalWon - totalStaked;
+  const pending      = footy.filter(b => !/settled|void/i.test(b.status));
+  const pendingStake = pending.reduce((s,b) => s+b.stake, 0);
   const settledNet  = settled.reduce((s,b) => s+b.payout, 0) - settled.reduce((s,b) => s+b.stake, 0);
   const wins        = settled.filter(b => b.payout > 0).length;
   const winRate     = settled.length ? ((wins / settled.length) * 100).toFixed(1) : '0.0';
@@ -353,7 +355,7 @@ function renderBetting(bets) {
     <div class="s-card"><div class="lbl">Deposited</div><div class="val blue">$${totalDep.toFixed(2)}</div></div>
     <div class="s-card"><div class="lbl">Total Staked</div><div class="val purple">$${totalStaked.toFixed(2)}</div></div>
     <div class="s-card"><div class="lbl">Total Winnings</div><div class="val ${totalWon>0?'green':'white'}">$${totalWon.toFixed(2)}</div></div>
-    <div class="s-card"><div class="lbl">P&amp;L (all)</div><div class="val ${net>=0?'green':'red'}">${net>=0?'+':''}$${net.toFixed(2)}</div></div>
+    <div class="s-card"><div class="lbl">Pending Stake</div><div class="val blue">$${pendingStake.toFixed(2)}</div></div>
     <div class="s-card"><div class="lbl">P&amp;L (settled)</div><div class="val ${settledNet>=0?'green':'red'}">${settledNet>=0?'+':''}$${settledNet.toFixed(2)}</div></div>
     <div class="s-card"><div class="lbl">Win Rate</div><div class="val ${parseFloat(winRate)>=50?'green':'white'}">${winRate}%</div></div>
     <div class="s-card"><div class="lbl">Won / Settled</div><div class="val white">${wins} / ${settled.length}</div></div>
@@ -380,12 +382,11 @@ function renderBetting(bets) {
     } else {
       cards += `<div class="bet-card ${cardCls}">
         <div class="bc-top">
-          <div class="bc-match">${TYPE_TAG[b.type]||''}${b.match}</div>
+          <div class="bc-match">${TYPE_TAG[b.type]||''}${b.selection}</div>
           <div class="bc-payout ${payoutCls}">${payoutTxt}</div>
         </div>
-        <div class="bc-sel">${b.selection}</div>
         <div class="bc-meta">
-          <span class="bc-stake">$${(b.stake||0).toFixed(2)}</span>
+          <span class="bc-stake">Stake $${(b.stake||0).toFixed(2)}</span>
           <span>&bull;</span>
           <span>${b.eventDate}</span>
           <span>&bull;</span>
@@ -514,8 +515,28 @@ function parseBlock(block) {
   const allDates   = [...text.matchAll(/(\d{1,2}\s+\w{3}\s+\d{4})/gi)];
   const eventDate  = (allDates.find(d => d[1].trim() !== txDateBase) || ['', '-'])[1];
 
-  const selMatch  = text.match(/((?:W Cup|Chilean League|Premier League|La Liga|Serie A|Bundesliga|MLS|League|Cup)[^$\d]{4,120})/i);
-  const selection = selMatch ? selMatch[1].trim().replace(/\s+/g, ' ') : text.substring(0, 100);
+  // ── Full bet line: from the league keyword up to the stake amount ($), keeping pick + odds ──
+  const LEAGUE_RE = /\b(W Cup|World Cup|Chilean League|Premier League|La Liga|Serie A|Bundesliga|Ligue 1|Eredivisie|Champions League|Europa League|Conference League|MLS|[A-Z][A-Za-z.]+ League|[A-Z][A-Za-z.]+ Cup)\b/i;
+  const lm = text.match(LEAGUE_RE);
+  let selection;
+  if (lm) {
+    let tail = text.slice(lm.index);
+    const stakeIdx = tail.search(/\$\s*[\d,]+\.\d{2}/);   // cut before the first $ amount (the stake)
+    if (stakeIdx > 0) tail = tail.slice(0, stakeIdx);
+    selection = tail
+      .replace(/\b(Single|Multiple|Football|Settled|Placed|Pending|Open|Void)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+\d{1,2}\s+\w{3}\s+\d{4}(?=\s*@)/i, '')                            // date sitting before the odds
+      .replace(/\s+\d{1,2}\s+\w{3}\s+\d{4}(?:\s+\d{1,2}:\d{2}\s*[AP]M)?\s*$/i, '')   // trailing date/time
+      .replace(/\s*-\s*$/, '').trim();
+  } else {
+    selection = text.substring(0, 120);
+  }
+
+  // ── Odds: decimal after an @ sign, e.g. "@ 1.97" ──
+  const oddsM = text.match(/@\s*(\d+(?:\.\d+)?)/);
+  const odds  = oddsM ? oddsM[1] : '';
+  if (odds && !/@/.test(selection)) selection += ' @ ' + odds;
 
   let betType;
   if (/Pick the Score|Fulltime PTS/i.test(selection)) betType = 'pts';
@@ -527,11 +548,11 @@ function parseBlock(block) {
   else betType = 'football';
 
   const matchName = selection
-    .replace(/W Cup - |Chilean League - /gi, '')
+    .replace(/^(?:W Cup|World Cup|Chilean League|Premier League|La Liga|Serie A|Bundesliga|Ligue 1|MLS|[A-Z][A-Za-z.]+ (?:League|Cup))\s*-\s*/i, '')
     .replace(/\s*-\s*(1X2|Pick the Score|Total Goals.*|Asian Handicap.*|Fulltime PTS.*)$/i, '')
     .trim().substring(0, 80);
 
-  return { date: block.date, type: betType, match: matchName || selection.substring(0, 60), betType: betType.toUpperCase(), selection, stake, eventDate, status, payout };
+  return { date: block.date, type: betType, match: matchName || selection.substring(0, 60), betType: betType.toUpperCase(), selection, odds, stake, eventDate, status, payout };
 }
 
 // ─────────────────────────────────────────────────────────────

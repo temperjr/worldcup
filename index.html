@@ -85,6 +85,7 @@ body{font-family:'Segoe UI',sans-serif;background:#080814;color:#dde;min-height:
 .bet-section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .bet-section-hdr span{font-size:.9rem;font-weight:600;color:#bbccff}
 .clear-btn{padding:10px 16px;background:#220033;color:#cc88ff;border:1px solid #440066;border-radius:6px;cursor:pointer;font-size:.78rem;font-weight:600;min-height:44px}
+.sort-btn{padding:10px 12px;background:#0d1a2a;color:#88aacc;border:1px solid #1a3050;border-radius:6px;cursor:pointer;font-size:.78rem;font-weight:600;min-height:44px;white-space:nowrap}
 
 /* Bet cards */
 .bet-cards{display:flex;flex-direction:column;gap:8px}
@@ -160,7 +161,10 @@ body{font-family:'Segoe UI',sans-serif;background:#080814;color:#dde;min-height:
 
   <div class="bet-section-hdr">
     <span>Transactions (<span id="tx-count">0</span>)</span>
-    <button class="clear-btn" onclick="resetData()">&#x21BA; Reset</button>
+    <div style="display:flex;gap:6px">
+      <button class="sort-btn" id="sort-btn" onclick="toggleBetSort()">Date &#x2193;</button>
+      <button class="clear-btn" onclick="resetData()">&#x21BA; Reset</button>
+    </div>
   </div>
   <div class="bet-cards" id="bet-cards">
     <div class="no-data">Upload a SG Pools PDF to view transactions.</div>
@@ -318,6 +322,13 @@ function renderMatches() {
 //  BETTING STATS
 // ─────────────────────────────────────────────────────────────
 let currentBets = [];
+let betSortDir = 'desc';
+
+function toggleBetSort() {
+  betSortDir = betSortDir === 'desc' ? 'asc' : 'desc';
+  document.getElementById('sort-btn').innerHTML = betSortDir === 'desc' ? 'Date &#x2193;' : 'Date &#x2191;';
+  renderBetting(currentBets);
+}
 
 const TYPE_TAG = {
   'parlay': '<span class="tag tag-parlay">PARLAY</span>',
@@ -329,7 +340,14 @@ const TYPE_TAG = {
   'deposit': ''
 };
 
+function parseBetDate(d) { return d ? new Date(d) : new Date(0); }
+
 function renderBetting(bets) {
+  const sorted = [...bets].sort((a, b) => {
+    const diff = parseBetDate(a.date) - parseBetDate(b.date);
+    return betSortDir === 'desc' ? -diff : diff;
+  });
+  bets = sorted;
   const deps        = bets.filter(b => b.type === 'deposit');
   const footy       = bets.filter(b => b.type !== 'deposit');
   const settled     = footy.filter(b => /settled/i.test(b.status));
